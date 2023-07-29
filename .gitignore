@@ -1,3 +1,5 @@
 config.json
 discloud.config
 config.zip
+__pycache__
+*.pyc
