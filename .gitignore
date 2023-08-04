@@ -3,3 +3,4 @@ discloud.config
 config.zip
 __pycache__
 *.pyc
+*.ppk
