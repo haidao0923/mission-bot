@@ -59,9 +59,9 @@ def display_user_stat(handle):
 
     message = f'{handle.name} Stats:\nName: {handle.display_name}\nPoint: {user_data["point"]}\n' + \
               f'Message Count: {user_data["message_count"]}\nGames Played: '
-    message += ", ".join([f'{game_list[int(key)]}: {value}' for key, value in user_data["games_played"].items()])
+    message += ", ".join([f'{game_list[int(key)][0]}: {value}' for key, value in user_data["games_played"].items()])
     message += "\n"
-    message += ", ".join([f'{game_list[int(key)]}: {value}' for key, value in user_data["games_won"].items()])
+    message += ", ".join([f'{game_list[int(key)][0]}: {value}' for key, value in user_data["games_won"].items()])
     return message
 
 
