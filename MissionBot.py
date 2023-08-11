@@ -101,6 +101,11 @@ async def help(ctx):
 
 
 @bot.command()
+async def h(ctx):
+    await help(ctx)
+
+
+@bot.command()
 async def gameid(ctx):
     message = "Game Database:\nActual Points are calculated using the following formula:\n" + \
               "(point / ranking) * (table size / best table size)\n*For example, if a game is worth 100 points, " + \
@@ -241,7 +246,7 @@ async def leaderboard(ctx, parameter="point"):
                 games_won = 0
             winrate = round(games_won / games_played * 100, 2)
             parsed_dict[i["name"]] = [games_won, games_played, winrate]
-        message += "\n".join([f'{key}: {value}' for key, value in sorted(
+        message += "\n".join([f'{key}: {value[0]} (win) | {value[1]} (played) | Winrate: {value[2]}%' for key, value in sorted(
                             parsed_dict.items(), key=lambda x:(x[1][0], x[1][2], x[1][1]), reverse=True)[0:user_count]])
     await ctx.channel.send(message)
 
