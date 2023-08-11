@@ -103,11 +103,15 @@ async def help(ctx):
 @bot.command()
 async def gameid(ctx):
     message = "Game Database:\nActual Points are calculated using the following formula:\n" + \
-              "(point / ranking) * (table size / max player count)\n*For example, if a game is worth 100 points, " + \
-              "the max player count is 4, and you rank 2nd in a 3-player game, you will gain " + \
+              "(point / ranking) * (table size / best table size)\n*For example, if a game is worth 100 points, " + \
+              "the best table size 4, and you rank 2nd in a 3-player game, you will gain " + \
               "(100 / 2) * (3 / 4) = 37.5 points = 37 points (rounded down)*\n```"
     for i in range(len(game_list)):
-        message += f"{i} | {game_list[i][0]} | {game_list[i][1]} points | {game_list[i][2]} players\n"
+        message += f"{i} | {game_list[i][0]} | {game_list[i][1]} points | {game_list[i][2]} recommended players\n"
+        if i % 20 == 0:
+            message += "```"
+            await ctx.channel.send(message)
+            message = "```"
     message += "```"
     await ctx.channel.send(message)
 
