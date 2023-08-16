@@ -1,8 +1,9 @@
 import json
 import discord
 import pymongo
+import asyncio
 from discord.ext import commands
-from GameList import game_list
+from GameList import GameType, game_list
 
 with open('config.json', 'r') as f:
     config = json.load(f)
@@ -108,12 +109,12 @@ async def h(ctx):
 @bot.command()
 async def gameid(ctx):
     message = "Game Database:\nActual Points are calculated using the following formula:\n" + \
-              "(point / ranking) * (table size / best table size)\n*For example, if a game is worth 100 points, " + \
-              "the best table size 4, and you rank 2nd in a 3-player game, you will gain " + \
-              "(100 / 2) * (3 / 4) = 37.5 points = 37 points (rounded down)*\n```"
+              "(base point * (table size - ranking + 1)\n*For example, if a game is worth 100 points, " + \
+              "and you rank 2nd in a 3-player game, you will gain (100 * (3 - 2 + 1) = 200 points*\n" + \
+              "For cooperative games, all winners gain (base point * table size) and everyone else get half.```"
     for i in range(len(game_list)):
-        message += f"{i} | {game_list[i][0]} | {game_list[i][1]} points | {game_list[i][2]} recommended players\n"
-        if i % 20 == 0:
+        message += f"{i} | {game_list[i][0]} | {game_list[i][1]} points | {game_list[i][2].value}\n"
+        if i % 25 == 24:
             message += "```"
             await ctx.channel.send(message)
             message = "```"
@@ -171,7 +172,7 @@ async def leaderboard(ctx, parameter="point"):
         if int(game_id) < 0 or int(game_id) >= len(game_list):
             ctx.channel.send("That Game ID does not exist!")
             return
-        message = f"**{game_list[int(game_id)][0]} Leaderboard**\n"
+        message = f"**{game_list[int(game_id)][0]} Leaderboard** | "
         filtered_list = collection.find({}, {"name": 1, "games_played": 1, "games_won": 1})
         parsed_dict = {}
         for i in filtered_list:
@@ -206,7 +207,7 @@ async def leaderboard(ctx, parameter="point"):
         await ctx.channel.send(message)
         return
     if parameter == "point":
-        message = "**Point Leaderboard**\n"
+        message = "**Point Leaderboard** | "
         filtered_list = collection.find({}, {"name": 1, "point": 1})
         parsed_dict = {}
         for i in filtered_list:
@@ -218,7 +219,7 @@ async def leaderboard(ctx, parameter="point"):
         message += "\n".join([f'{key}: {value}' for key, value in sorted(
                             parsed_dict.items(), key=lambda x:x[1], reverse=True)[0:user_count]])
     elif parameter == "game" or parameter == "games":
-        message = "**Games Leaderboard**\n"
+        message = "**Games Leaderboard** | "
         filtered_list = collection.find({}, {"name": 1, "games_played": 1, "games_won": 1})
         parsed_dict = {}
         for i in filtered_list:
@@ -270,15 +271,52 @@ async def recordgame(ctx, game_id: int, members: commands.Greedy[discord.Member]
     if game_id < 0 or game_id >= len(game_list):
         await ctx.channel.send("That Game ID is invalid!")
         return
+    if len(members) < 1:
+        await ctx.channel.send("There are no players in this game!")
+        return
+    if game_list[game_id][2] == GameType.MULTIPLE_WINNER:
+        await ctx.channel.send("I noticed that the game can have multiple winners. How many winners were in this game?")
+        def check(m):
+            return (
+                m.author == ctx.message.author
+        )
+        winner_count = -1
+        while winner_count == -1:
+            try:
+                msg = await bot.wait_for(
+                    "message",
+                    timeout=7.0,
+                    check=check
+                )
+            except asyncio.TimeoutError:
+                # they didn't respond in time
+                await ctx.channel.send("You didn't respond in time :(")
+                return
+            else:
+                if msg.content.isdigit() and int(msg.content) >= 0 and int(msg.content) <= len(members):
+                    winner_count = int(msg.content)
+                    await ctx.channel.send(f"Recorded that there are {winner_count} winners.")
+                else:
+                    await ctx.channel.send(f"The number of winners must be between 0 and {len(members)}. Please try again.")
+
+
     for i in range(len(members)):
         increment_attribute(members[i], f"games_played.{game_id}")
-        # Formula for point: int((point / ranking) * (table size / max player count))
-        point = int((game_list[game_id][1] / (i+1)) * (len(members) / game_list[game_id][2]))
+        # Formula for point: int(point * (table size - ranking + 1))
+        if game_list[game_id][2] == GameType.MULTIPLE_WINNER:
+            point = int(game_list[game_id][1] * len(members))
+            if i < winner_count:
+                increment_attribute(members[i], f"games_won.{game_id}")
+            else:
+                point = int(point / 2)
+        else:
+            if i == 0:
+                increment_attribute(members[i], f"games_won.{game_id}")
+            point = int(game_list[game_id][1] * (len(members) - i))
         await givepoint(ctx, point, members[i])
 
     increment_attribute(-1, f"games_played.{game_id}")
     increment_attribute(-1, f"games_won.{game_id}", 1 / len(members))
-    increment_attribute(members[0], f"games_won.{game_id}")
     await ctx.channel.send("Game Recorded")
 
 
@@ -314,6 +352,12 @@ async def changegameswon(ctx, game_id: int, member: discord.Member, amount=0):
     increment_attribute(member, f"games_won.{game_id}", amount)
     increment_attribute(-1, f"games_won.{game_id}", amount)
     await ctx.channel.send("Data Changed")
+
+
+@bot.command()
+@commands.has_role("Officer")
+async def reset(ctx, game_id: int, member: discord.Member):
+    pass
 
 
 bot.run(config['token'])
