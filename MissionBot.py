@@ -2,6 +2,7 @@ import json
 import discord
 import pymongo
 import asyncio
+from datetime import datetime
 from discord.ext import commands
 from GameList import GameType, game_list
 
@@ -65,6 +66,16 @@ def increment_attribute(handle, key, increment_amount=1):
     user_data = find_or_create_user(handle)
     collection.update_one(user_data, {"$inc": {key: increment_amount}, "$set": {"name": name}})
     return user_data
+
+
+def get_date_dependent_played_won_dictionary_attribute():
+    isWeekend = datetime.now().weekday() >= 5  # 5 = Saturday, 6 = Sunday
+    date_dependent_played_dictionary = "weekday_games_played"
+    date_dependent_won_dictionary = "weekday_games_won"
+    if isWeekend:
+        date_dependent_played_dictionary = "weekend_games_played"
+        date_dependent_won_dictionary = "weekend_games_won"
+    return date_dependent_played_dictionary, date_dependent_won_dictionary
 
 
 @bot.event
@@ -184,10 +195,10 @@ async def leaderboard(ctx, parameter="point"):
                     message += "No one has played this game yet!"
                     continue
                 try:
-                    total_won = i["games_won"][game_id]
+                    games_won = i["games_won"][game_id]
                 except KeyError:
-                    total_won = 0
-                message += f"Total Games Played: {total_played} | Average Table Size: {round(total_played / total_won, 2)}\n"
+                    games_won = 0
+                message += f"Total Games Played: {total_played} | Average Table Size: {round(games_won / total_played, 2)}\n"
                 continue
 
             try:
@@ -206,6 +217,7 @@ async def leaderboard(ctx, parameter="point"):
                                     parsed_dict.items(), key=lambda x:(x[1][0], x[1][2], x[1][1]), reverse=True)[0:user_count]])
         await ctx.channel.send(message)
         return
+    parameter = parameter.lower()
     if parameter == "point":
         message = "**Point Leaderboard** | "
         filtered_list = collection.find({}, {"name": 1, "point": 1})
@@ -231,10 +243,10 @@ async def leaderboard(ctx, parameter="point"):
                     message += "No one has played this game yet!"
                     continue
                 try:
-                    total_won = sum(i["games_played"].values())
+                    games_won = sum(i["games_won"].values())
                 except KeyError:
-                    total_won = 0
-                message += f"Total Games Played: {total_played} | Average Table Size: {round(total_played / total_won, 2)}\n"
+                    games_won = 0
+                message += f"Total Games Played: {total_played} | Average Table Size: {round(games_won / total_played, 2)}\n"
                 continue
             try:
                 games_played = sum(i["games_played"].values())
@@ -249,6 +261,40 @@ async def leaderboard(ctx, parameter="point"):
             parsed_dict[i["name"]] = [games_won, games_played, winrate]
         message += "\n".join([f'{key}: {value[0]} (win) | {value[1]} (played) | Winrate: {value[2]}%' for key, value in sorted(
                             parsed_dict.items(), key=lambda x:(x[1][0], x[1][2], x[1][1]), reverse=True)[0:user_count]])
+    elif parameter == "weekend" or parameter == "weekday":
+        message = f"**{parameter.title()} Leaderboard** | "
+        filtered_list = collection.find({}, {"name": 1, f"{parameter}_games_played": 1, f"{parameter}_games_won": 1})
+        parsed_dict = {}
+        for i in filtered_list:
+            if i["name"] == "General Game":
+                try:
+                    total_played = sum(i[f"{parameter}_games_played"].values())
+                except KeyError:
+                    total_played = 0
+                    message += "No one has played this game yet!"
+                    continue
+                try:
+                    games_won = sum(i[f"{parameter}_games_won"].values())
+                except KeyError:
+                    games_won = 0
+                message += f"Total Games Played: {total_played} | Average Table Size: {round(games_won / total_played, 2)}\n"
+                continue
+            try:
+                games_played = sum(i[f"{parameter}_games_played"].values())
+            except KeyError:
+                games_played = 0
+                continue
+            try:
+                games_won = sum(i[f"{parameter}_games_won"].values())
+            except KeyError:
+                games_won = 0
+            winrate = round(games_won / games_played * 100, 2)
+            parsed_dict[i["name"]] = [games_won, games_played, winrate]
+        message += "\n".join([f'{key}: {value[0]} (win) | {value[1]} (played) | Winrate: {value[2]}%' for key, value in sorted(
+                            parsed_dict.items(), key=lambda x:(x[1][0], x[1][2], x[1][1]), reverse=True)[0:user_count]])
+    else:
+        await ctx.channel.send("Invalid Command")
+        return
     await ctx.channel.send(message)
 
 
@@ -268,6 +314,7 @@ async def givepoint(ctx, point: int, members: commands.Greedy[discord.Member]):
 @bot.command()
 @commands.has_role("Officer")
 async def recordgame(ctx, game_id: int, members: commands.Greedy[discord.Member]):
+    date_dependent_played_dictionary, date_dependent_won_dictionary = get_date_dependent_played_won_dictionary_attribute()
     if game_id < 0 or game_id >= len(game_list):
         await ctx.channel.send("That Game ID is invalid!")
         return
@@ -301,22 +348,27 @@ async def recordgame(ctx, game_id: int, members: commands.Greedy[discord.Member]
 
 
     for i in range(len(members)):
+        increment_attribute(members[i], f"{date_dependent_played_dictionary}.{game_id}")
         increment_attribute(members[i], f"games_played.{game_id}")
         # Formula for point: int(point * (table size - ranking + 1))
         if game_list[game_id][2] == GameType.MULTIPLE_WINNER:
             point = int(game_list[game_id][1] * len(members))
             if i < winner_count:
+                increment_attribute(members[i], f"{date_dependent_won_dictionary}.{game_id}")
                 increment_attribute(members[i], f"games_won.{game_id}")
             else:
                 point = int(point / 2)
         else:
             if i == 0:
+                increment_attribute(members[i], f"{date_dependent_won_dictionary}.{game_id}")
                 increment_attribute(members[i], f"games_won.{game_id}")
             point = int(game_list[game_id][1] * (len(members) - i))
         await givepoint(ctx, point, members[i])
 
     increment_attribute(-1, f"games_played.{game_id}")
-    increment_attribute(-1, f"games_won.{game_id}", 1 / len(members))
+    increment_attribute(-1, f"games_won.{game_id}", len(members))
+    increment_attribute(-1, f"{date_dependent_played_dictionary}.{game_id}")
+    increment_attribute(-1, f"{date_dependent_won_dictionary}.{game_id}", len(members))
     await ctx.channel.send("Game Recorded")
 
 
@@ -333,10 +385,14 @@ async def changegamesplayed(ctx, game_id: int, member: discord.Member, amount=0)
         await ctx.channel.send("That Game ID is invalid!")
         return
     if amount == 0:
-        await ctx.channel.send("How much do you want to change?")
+        await ctx.channel.send("You can't change by 0!")
         return
+    date_dependent_played_dictionary, date_dependent_won_dictionary = get_date_dependent_played_won_dictionary_attribute()
     increment_attribute(member, f"games_played.{game_id}", amount)
+    increment_attribute(member, f"{date_dependent_played_dictionary}.{game_id}", amount)
     increment_attribute(-1, f"games_played.{game_id}", amount)
+    increment_attribute(-1, f"{date_dependent_played_dictionary}.{game_id}", amount)
+    increment_attribute(-1, f"{date_dependent_won_dictionary}.{game_id}", amount)
     await ctx.channel.send("Data Changed")
 
 
@@ -347,8 +403,10 @@ async def changegameswon(ctx, game_id: int, member: discord.Member, amount=0):
         await ctx.channel.send("That Game ID is invalid!")
         return
     if amount == 0:
-        await ctx.channel.send("How much do you want to change?")
+        await ctx.channel.send("You can't change by 0!")
         return
+    date_dependent_played_dictionary, date_dependent_won_dictionary = get_date_dependent_played_won_dictionary_attribute()
+    increment_attribute(member, f"{date_dependent_won_dictionary}.{game_id}", amount)
     increment_attribute(member, f"games_won.{game_id}", amount)
     increment_attribute(-1, f"games_won.{game_id}", amount)
     await ctx.channel.send("Data Changed")
